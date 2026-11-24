@@ -60,6 +60,9 @@
   .field span { display: block; font-size: 0.78rem; color: #55554f; margin-bottom: 4px; }
   .field-counter { float: right; color: #b3b1ab; font-weight: 400; }
   .field-counter.is-under { color: #b50024; }
+  .field input[type=text].is-missing, .list-item input[type=text].is-missing { border-color: #b50024; background: #fff5f6; }
+  .pv-warning { border: 1.5px solid #b50024; background: #fff5f6; color: #b50024; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.82rem; }
+  .pv-warning ul { margin: 6px 0 0 18px; }
   .field input[type=text], .field input[type=date], .field textarea, .field select {
     width: 100%;
     border: 1.5px solid #e0e0e0;
@@ -476,9 +479,9 @@
     ]},
     { key:'leadtext', group:'content', label:'Leadtext', icon:'📝', fields:[
         {key:'text', label:'Lead text (min. 250 characters, min. 3 lines)', type:'textarea', minLength:250, required:true},
-        {key:'sponsorSamId', label:'Presented by — logo (optional)', type:'image'},
+        {key:'sponsorSamId', label:'Presented by — logo (optional)', type:'image', optional:true},
         {key:'sponsorLink', label:'Presented by — link (optional)', type:'text'},
-        {key:'teaserSamId', label:'Teaser image (optional)', type:'image'},
+        {key:'teaserSamId', label:'Teaser image (optional)', type:'image', optional:true},
         {key:'teaserSubtitle', label:'Teaser subtitle', type:'text', requiredIf: d => !!(d.teaserSamId || d.teaserSamIdDataUrl)},
         {key:'teaserIntro', label:'Teaser intro', type:'text', requiredIf: d => !!(d.teaserSamId || d.teaserSamIdDataUrl)},
         {key:'teaserLink', label:'Teaser link label', type:'select', options:LINK_LABEL_OPTIONS, allowEmpty:true, requiredIf: d => !!(d.teaserSamId || d.teaserSamIdDataUrl)},
@@ -533,7 +536,7 @@
     ]},
     { key:'story-text', group:'content', label:'Story Text', icon:'📖', fields:[
         {key:'layout', label:'Layout', type:'select', options:['Image left','Image right']},
-        {key:'samId', label:'Image (optional)', type:'image'},
+        {key:'samId', label:'Image (optional)', type:'image', optional:true},
         {key:'title', label:'Title', type:'text'},
         {key:'text', label:'Text', type:'textarea'},
         {key:'linkLabel', label:'Link label', type:'select', options:LINK_LABEL_OPTIONS, required:true},
@@ -622,6 +625,31 @@
     return !!(field.required || (field.requiredIf && field.requiredIf(section.data)));
   }
 
+  // SAM ID is compulsory for every image (upload is optional); images marked optional only need one once used
+  function isSamRequired(field, data) {
+    return !field.optional || !!(data[field.key] || data[field.key + 'DataUrl']);
+  }
+
+  function missingSamIds() {
+    const missing = [];
+    state.sections.forEach((section, idx) => {
+      const def = typeDef(section.type);
+      def.fields.filter(f => !f.showIf || f.showIf(section.data)).forEach(f => {
+        if (f.type === 'image' && isSamRequired(f, section.data) && !section.data[f.key]) {
+          missing.push(`${idx + 1}. ${def.label} – ${f.label}`);
+        }
+        if (f.type === 'list') {
+          f.itemFields.filter(itf => itf.type === 'image').forEach(itf => {
+            (section.data[f.key] || []).forEach((item, n) => {
+              if (!item[itf.key]) missing.push(`${idx + 1}. ${def.label} – ${f.label} #${n + 1}`);
+            });
+          });
+        }
+      });
+    });
+    return missing;
+  }
+
   function lengthCounterHtml(val, field) {
     const len = (val || '').length;
     if (field.maxLength) return `<span class="field-counter">${len}/${field.maxLength}</span>`;
@@ -649,11 +677,12 @@
     }
     if (field.type === 'image') {
       const dataUrl = section.data[field.key + 'DataUrl'];
+      const samRequired = isSamRequired(field, section.data);
       return `<div class="field img-field">
-        <span>${esc(field.label)}${required ? ' *' : ''}</span>
+        <span>${esc(field.label)}${samRequired ? ' *' : ''}</span>
         ${dataUrl ? `<img class="img-thumb" src="${dataUrl}" alt="">` : ''}
         <div class="img-field-row">
-          <input type="text" data-sec="${section.id}" data-field="${field.key}" value="${esc(val)}" placeholder="SAM ID (optional if uploading)">
+          <input type="text" data-sec="${section.id}" data-field="${field.key}" value="${esc(val)}" placeholder="SAM ID${samRequired ? ' (required)' : ''}"${samRequired ? ` data-sam-required class="${val ? '' : 'is-missing'}"` : ''}>
           <label class="btn-upload">Upload<input type="file" accept="image/*" hidden data-upload-sec="${section.id}" data-upload-field="${field.key}"></label>
           ${dataUrl ? `<button type="button" class="btn-remove-img" data-action="remove-image" data-sec="${section.id}" data-field="${field.key}">Remove</button>` : ''}
         </div>
@@ -665,7 +694,7 @@
         const cellsHtml = field.itemFields.map(f => {
           if (f.type === 'image') {
             const dataUrl = item[f.key + 'DataUrl'];
-            return `<label class="item-img-upload" title="Upload image">${dataUrl ? `<img src="${dataUrl}" alt="">` : '<span class="item-img-placeholder">📷</span>'}<input type="file" accept="image/*" hidden data-upload-sec="${section.id}" data-upload-field="${field.key}" data-upload-item="${item.id}" data-upload-itemfield="${f.key}"></label>${dataUrl ? `<button type="button" class="btn-remove-img-sm" data-action="remove-image" data-sec="${section.id}" data-field="${field.key}" data-item="${item.id}" data-itemfield="${f.key}" title="Remove image">✕</button>` : ''}<input type="text" data-sec="${section.id}" data-field="${field.key}" data-item="${item.id}" data-itemfield="${f.key}" placeholder="${esc(f.label)} (SAM ID)" value="${esc(item[f.key])}">`;
+            return `<label class="item-img-upload" title="Upload image">${dataUrl ? `<img src="${dataUrl}" alt="">` : '<span class="item-img-placeholder">📷</span>'}<input type="file" accept="image/*" hidden data-upload-sec="${section.id}" data-upload-field="${field.key}" data-upload-item="${item.id}" data-upload-itemfield="${f.key}"></label>${dataUrl ? `<button type="button" class="btn-remove-img-sm" data-action="remove-image" data-sec="${section.id}" data-field="${field.key}" data-item="${item.id}" data-itemfield="${f.key}" title="Remove image">✕</button>` : ''}<input type="text" data-sec="${section.id}" data-field="${field.key}" data-item="${item.id}" data-itemfield="${f.key}" placeholder="${esc(f.label)} (SAM ID) *" value="${esc(item[f.key])}" data-sam-required class="${item[f.key] ? '' : 'is-missing'}">`;
           }
           return `<input type="text" data-sec="${section.id}" data-field="${field.key}" data-item="${item.id}" data-itemfield="${f.key}" placeholder="${esc(f.label)}" value="${esc(item[f.key])}">`;
         }).join('');
@@ -925,6 +954,7 @@
     } else {
       section.data[fieldKey] = t.value;
     }
+    if (t.hasAttribute('data-sam-required')) t.classList.toggle('is-missing', !t.value.trim());
     if (t.maxLength >= 0 || t.minLength >= 0) {
       const counterEl = t.closest('.field').querySelector('.field-counter');
       if (counterEl) {
@@ -1077,6 +1107,10 @@
         <tr><th>Redirect</th><td colspan="3">${esc(state.meta.redirect)}</td></tr>
       </table>
       <h2>Sections (${state.sections.length})</h2>`;
+    const missing = missingSamIds();
+    if (missing.length) {
+      html = `<div class="pv-warning no-print"><strong>Missing SAM ID${missing.length > 1 ? 's' : ''} (${missing.length})</strong><ul>${missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` + html;
+    }
     if (!state.sections.length) {
       html += `<p class="pv-empty">No sections added yet.</p>`;
     } else {
