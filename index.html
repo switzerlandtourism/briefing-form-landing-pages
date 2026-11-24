@@ -194,6 +194,7 @@
   .vp-section-title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
   .vp-section-title-row h4 { font-size: 1.3rem; font-weight: 600; color: #272726; }
   .vp-section-title-sub { color: #686867; font-size: 0.85rem; line-height: 1.4; margin-top: 6px; }
+  .vp-section-title-link { margin-top: 10px; }
   .vp-link { font-size: 0.78rem; color: #b50024; font-weight: 600; white-space: nowrap; }
 
   .vp-two-col { display: flex; gap: 16px; align-items: center; }
@@ -472,7 +473,7 @@
         {key:'samId', label:'Background image', type:'image', showIf: d => d.backgroundType !== 'Video', required:true},
         {key:'youtubeUrl', label:'Background video (YouTube URL)', type:'text', showIf: d => d.backgroundType === 'Video', required:true},
         {key:'title', label:'Title', type:'text', maxLength:40, required:true},
-        {key:'locationName', label:'Location name', type:'text', required:true}
+        {key:'locationName', label:'Location name (optional)', type:'text'}
     ]},
     { key:'sub-menu', group:'start', label:'Sub menu', icon:'📑', fields:[
         {type:'info', text:'Menu items are generated automatically from the title of every Section Title added to this page.'}
@@ -492,6 +493,14 @@
         {key:'text', label:'Subtitle text (optional)', type:'textarea'},
         {key:'linkLabel', label:'Link label', type:'select', options:SECTION_TITLE_LABEL_OPTIONS, required:true},
         {key:'linkUrl', label:'Link URL (optional)', type:'text'}
+    ]},
+    { key:'image-text-teaser', group:'content', label:'Image Text Teaser', icon:'🖼️', fields:[
+        {key:'layout', label:'Layout', type:'select', options:['Image left','Image right']},
+        {key:'samId', label:'Image', type:'image'},
+        {key:'title', label:'Title', type:'text'},
+        {key:'text', label:'Text', type:'textarea'},
+        {key:'linkLabel', label:'Link label', type:'select', options:IMAGE_TEXT_TEASER_LABEL_OPTIONS, required:true},
+        {key:'linkUrl', label:'Link URL', type:'text', required:true}
     ]},
     { key:'grid-teaser-slider', group:'content', label:'Grid Teaser Slider', icon:'🎠', fields:[
         {key:'title', label:'Title', type:'text'},
@@ -525,14 +534,6 @@
         {key:'text', label:'Text', type:'textarea'},
         {key:'linkLabel', label:'Link label', type:'text'},
         {key:'linkUrl', label:'Link URL', type:'text'}
-    ]},
-    { key:'image-text-teaser', group:'content', label:'Image Text Teaser', icon:'🖼️', fields:[
-        {key:'layout', label:'Layout', type:'select', options:['Image left','Image right']},
-        {key:'samId', label:'Image', type:'image'},
-        {key:'title', label:'Title', type:'text'},
-        {key:'text', label:'Text', type:'textarea'},
-        {key:'linkLabel', label:'Link label (optional)', type:'select', options:IMAGE_TEXT_TEASER_LABEL_OPTIONS, allowEmpty:true},
-        {key:'linkUrl', label:'Link URL (optional)', type:'text'}
     ]},
     { key:'story-text', group:'content', label:'Story Text', icon:'📖', fields:[
         {key:'layout', label:'Layout', type:'select', options:['Image left','Image right']},
@@ -808,7 +809,7 @@
       const teaser = `<div>${placeholderBox(d.teaserSamId, '1/1', d.teaserSamIdDataUrl)}${d.teaserSubtitle ? `<div class="vp-lead-teaser-sub">${esc(d.teaserSubtitle)}</div>` : ''}${d.teaserIntro ? `<div class="vp-lead-teaser-title">${esc(d.teaserIntro)}</div>` : ''}${d.teaserLink ? `<span class="vp-link">${esc(d.teaserLink)} →</span>` : ''}</div>`;
       return `<div class="vp-two-col" style="align-items:flex-start">${leftCol}${teaser}</div>`;
     },
-    'section-title': d => `<div><div class="vp-section-title-row"><h4>${vText(d.title, 'Section title')}</h4>${d.linkLabel ? `<span class="vp-link">${esc(d.linkLabel)} →</span>` : ''}</div>${d.text ? `<p class="vp-section-title-sub">${esc(d.text)}</p>` : ''}</div>`,
+    'section-title': d => `<div><div class="vp-section-title-row"><h4>${vText(d.title, 'Section title')}</h4></div>${d.text ? `<p class="vp-section-title-sub">${esc(d.text)}</p>` : ''}${d.linkLabel ? `<div class="vp-section-title-link"><span class="vp-link">${esc(d.linkLabel)} →</span></div>` : ''}</div>`,
     'grid-teaser-slider': d => teaserRow(d.title, d.items || []),
     'image-gallery-video': d => {
       let media;
