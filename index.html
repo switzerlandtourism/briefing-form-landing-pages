@@ -63,6 +63,8 @@
   .field input[type=text].is-missing, .list-item input[type=text].is-missing { border-color: #b50024; background: #fff5f6; }
   .pv-warning { border: 1.5px solid #b50024; background: #fff5f6; color: #b50024; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.82rem; }
   .pv-warning ul { margin: 6px 0 0 18px; }
+  .pv-warning a { color: #b50024; }
+  .pv-ok { border: 1.5px solid #2e7d32; background: #f1f8f1; color: #2e7d32; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.82rem; }
   .field input[type=text], .field input[type=date], .field textarea, .field select {
     width: 100%;
     border: 1.5px solid #e0e0e0;
@@ -122,6 +124,8 @@
   .btn-ghost { background: white; border: 1.5px solid #e0e0e0; }
   .btn-danger { background: white; border: 1.5px solid #db001c; color: #db001c; }
   .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .link-btn { background: none; border: none; padding: 0; font: inherit; color: #686867; text-decoration: underline; cursor: pointer; }
+  .link-btn:hover { color: #db001c; }
 
   /* ── Workspace (editor canvas + live preview) ── */
   .workspace { display: flex; gap: 20px; align-items: flex-start; }
@@ -394,7 +398,8 @@
         <li>Click a section tile below to add it to your page, in the order it should appear.</li>
         <li>Fill in the fields shown for each section (titles, texts, links, SAM/image IDs).</li>
         <li>Reorder or remove sections at any time with the ↑ ↓ and Delete controls.</li>
-        <li>When done, use Preview to review, then Save as PDF for the ticket.</li>
+        <li>When done, use Preview to review, then Save as PDF for the ticket. Preview lists anything still missing — click an item to jump to it.</li>
+        <li>Your work is kept in this browser only. Use Save draft to keep it as a file, and Open draft to continue later, on another computer or from a colleague's draft.</li>
       </ul>
     </details>
 
@@ -426,7 +431,7 @@
       <div class="toolbar">
         <div>
           <h1>Your landing page</h1>
-          <div class="count" id="section-count">0 sections</div>
+          <div class="count"><span id="section-count">0 sections</span> · <button type="button" class="link-btn" id="btn-save-draft">Save draft</button> · <label class="link-btn">Open draft<input type="file" accept=".json,application/json" hidden id="draft-file"></label></div>
         </div>
         <div class="toolbar-actions">
           <button class="btn btn-primary" id="btn-preview">Preview</button>
@@ -584,16 +589,19 @@
     return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  function normalizeState(parsed) {
+    if (!parsed || !Array.isArray(parsed.sections) || !parsed.meta) return null;
+    parsed.sections = parsed.sections.map(s => s.type === 'intro-image' ? { ...s, type: 'leadtext' } : s)
+      .filter(s => s.type !== 'content-fry' && typeDef(s.type));
+    return parsed;
+  }
+
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.sections) && parsed.meta) {
-          parsed.sections = parsed.sections.map(s => s.type === 'intro-image' ? { ...s, type: 'leadtext' } : s)
-            .filter(s => s.type !== 'content-fry');
-          return parsed;
-        }
+        const parsed = normalizeState(JSON.parse(raw));
+        if (parsed) return parsed;
       }
     } catch (e) {}
     return defaultState();
@@ -631,24 +639,34 @@
     return !field.optional || !!(data[field.key] || data[field.key + 'DataUrl']);
   }
 
-  function missingSamIds() {
-    const missing = [];
+  function isEmpty(val) {
+    return !String(val ?? '').trim();
+  }
+
+  // Everything still missing before the briefing is complete; listed in Preview with a link to each field
+  function validationIssues() {
+    const issues = [];
     state.sections.forEach((section, idx) => {
       const def = typeDef(section.type);
+      const where = `${idx + 1}. ${def.label}`;
       def.fields.filter(f => !f.showIf || f.showIf(section.data)).forEach(f => {
-        if (f.type === 'image' && isSamRequired(f, section.data) && !section.data[f.key]) {
-          missing.push(`${idx + 1}. ${def.label} – ${f.label}`);
-        }
-        if (f.type === 'list') {
+        const val = section.data[f.key];
+        if (f.type === 'image') {
+          if (isSamRequired(f, section.data) && isEmpty(val)) issues.push({ secId: section.id, field: f.key, text: `${where} – ${f.label}: SAM ID missing` });
+        } else if (f.type === 'list') {
           f.itemFields.filter(itf => itf.type === 'image').forEach(itf => {
-            (section.data[f.key] || []).forEach((item, n) => {
-              if (!item[itf.key]) missing.push(`${idx + 1}. ${def.label} – ${f.label} #${n + 1}`);
+            (val || []).forEach((item, n) => {
+              if (isEmpty(item[itf.key])) issues.push({ secId: section.id, field: f.key, item: item.id, itemField: itf.key, text: `${where} – ${f.label} #${n + 1}: SAM ID missing` });
             });
           });
+        } else if (isFieldRequired(section, f) && isEmpty(val)) {
+          issues.push({ secId: section.id, field: f.key, text: `${where} – ${f.label}` });
+        } else if (f.minLength && !isEmpty(val) && val.length < f.minLength) {
+          issues.push({ secId: section.id, field: f.key, text: `${where} – ${f.label}: ${val.length}/${f.minLength} characters` });
         }
       });
     });
-    return missing;
+    return issues;
   }
 
   function lengthCounterHtml(val, field) {
@@ -1100,6 +1118,8 @@
     });
   }
 
+  let previewIssues = [];
+
   function buildPreviewHTML() {
     let html = `<h1>Briefing form for landing page</h1>
       <table class="pv-meta">
@@ -1108,9 +1128,11 @@
         <tr><th>Redirect</th><td colspan="3">${esc(state.meta.redirect)}</td></tr>
       </table>
       <h2>Sections (${state.sections.length})</h2>`;
-    const missing = missingSamIds();
-    if (missing.length) {
-      html = `<div class="pv-warning no-print"><strong>Missing SAM ID${missing.length > 1 ? 's' : ''} (${missing.length})</strong><ul>${missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` + html;
+    previewIssues = validationIssues();
+    if (previewIssues.length) {
+      html = `<div class="pv-warning no-print"><strong>Missing information (${previewIssues.length})</strong> — click an item to go to the field<ul>${previewIssues.map((m, i) => `<li><a href="#" data-issue="${i}">${esc(m.text)}</a></li>`).join('')}</ul></div>` + html;
+    } else if (state.sections.length) {
+      html = `<div class="pv-ok no-print">All required fields are filled in.</div>` + html;
     }
     if (!state.sections.length) {
       html += `<p class="pv-empty">No sections added yet.</p>`;
@@ -1145,21 +1167,82 @@
     previewView.hidden = true;
     editorView.hidden = false;
   });
-  document.getElementById('btn-print').addEventListener('click', () => window.print());
+  document.getElementById('btn-print').addEventListener('click', () => {
+    const n = validationIssues().length;
+    if (n && !confirm(`${n} required item${n > 1 ? 's are' : ' is'} still missing. Save as PDF anyway?`)) return;
+    window.print();
+  });
 
-  function downloadJson() {
-    const json = JSON.stringify(exportObject(), null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+  function goToField(issue) {
+    const section = state.sections.find(s => s.id === issue.secId);
+    if (!section) return;
+    previewView.hidden = true;
+    editorView.hidden = false;
+    if (section.collapsed) { section.collapsed = false; renderCanvas(); }
+    let sel = `[data-sec="${issue.secId}"][data-field="${issue.field}"]`;
+    if (issue.item) sel += `[data-item="${issue.item}"][data-itemfield="${issue.itemField}"]`;
+    const input = canvasEl.querySelector(sel);
+    flashHighlight(input ? input.closest('.field') : canvasEl.querySelector(`.section-card[data-sec-id="${issue.secId}"]`), 'sec-highlight');
+    if (input) input.focus({ preventScroll: true });
+  }
+
+  previewDoc.addEventListener('click', e => {
+    const link = e.target.closest('[data-issue]');
+    if (!link) return;
+    e.preventDefault();
+    goToField(previewIssues[+link.dataset.issue]);
+  });
+
+  function briefingSlug() {
+    const name = (state.meta.redirect || 'briefing').split('/').pop() || 'briefing';
+    return name.replace(/[^a-z0-9-_]+/gi, '-');
+  }
+
+  function downloadText(text, filename) {
+    const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const name = (state.meta.redirect || 'briefing').split('/').pop() || 'briefing';
     a.href = url;
-    a.download = `briefing-${name.replace(/[^a-z0-9-_]+/gi, '-')}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   }
+
+  function downloadJson() {
+    downloadText(JSON.stringify(exportObject(), null, 2), `briefing-${briefingSlug()}.json`);
+  }
+
+  // Drafts: the full form state (incl. uploaded images) as a file that Open draft can load again
+  const DRAFT_APP = 'briefing-form-draft';
+
+  document.getElementById('btn-save-draft').addEventListener('click', () => {
+    const draft = { app: DRAFT_APP, version: 1, savedAt: new Date().toISOString(), state };
+    downloadText(JSON.stringify(draft), `briefing-draft-${briefingSlug()}-${draft.savedAt.slice(0, 10)}.json`);
+  });
+
+  document.getElementById('draft-file').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let loaded = null;
+      try {
+        const parsed = JSON.parse(reader.result);
+        loaded = normalizeState(parsed && parsed.app === DRAFT_APP ? parsed.state : null);
+      } catch (err) {}
+      if (!loaded) { alert('This file is not a briefing draft.'); return; }
+      if (!confirm('Open this draft? It replaces the briefing currently in the form.')) return;
+      state = loaded;
+      saveState();
+      initMeta();
+      pinSubmenuUnderHeader();
+      renderCanvas();
+    };
+    reader.readAsText(file);
+  });
 
   document.getElementById('btn-clear').addEventListener('click', () => {
     if (confirm('Clear the entire briefing? This cannot be undone.')) {
